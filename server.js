@@ -325,8 +325,8 @@ function getGeoparquets() {
         for (var j = 0, jj = months.length; j < jj; j++) {
             for (var k = 0, kk = days.length; k < kk; k++) {
                 var id = [[years[i], months[j].toString().padStart(2, '0'), days[k].toString().padStart(2, '0')].join('-')];
-                //geoparquets[id] = rootUrl + 'RUN_' + years[i] + '_5YEARS_GEOPARQUET/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
-                geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
+                geoparquets[id] = rootUrl + 'RUN_' + years[i] + '_5YEARS_GEOPARQUET/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
+                //geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
             }
         }
     }
