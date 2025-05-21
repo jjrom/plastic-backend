@@ -45,10 +45,7 @@ app.get("/", async (req, res) => {
 });
 
 // API
-app.get('/tracks')
-app.get('/tracks/:trackId')
-/*app.get('/destination', getDestination);
-app.get('/search', getOrigin);
+/*app.get('/search', getOrigin);
 app.get('/origin', getOrigin);
 app.get('/tracks', getTracks)
 app.get('/max', getMax);
@@ -118,6 +115,12 @@ app.get("/destination", async (req, res) => {
     if (!queryParams.intersects) {
         return res.status(400).json({
             error: 'Mandatory bbox or intersects is missing'
+        });
+    }
+
+    if (!queryParams.timeRange) {
+        return res.status(400).json({
+            error: 'Mandatory datetime is missing'
         });
     }
 
@@ -204,6 +207,107 @@ app.get("/destination", async (req, res) => {
 
 });
 
+/**
+ * Get destination from area
+ */
+app.get("/origin", async (req, res) => {
+
+    const queryParams = parseQueryParams(req.query);
+    if (!queryParams.intersects) {
+        return res.status(400).json({
+            error: 'Mandatory bbox or intersects is missing'
+        });
+    }
+
+    if (!queryParams.timeRange) {
+        return res.status(400).json({
+            error: 'Mandatory datetime is missing'
+        });
+    }
+
+    function queryString(parquetFile) {
+        return `
+            WITH cte AS (
+                SELECT DISTINCT trajectory FROM '${parquetFile}'
+                WHERE ST_Intersects_Extent(geometry, ST_GeomFromText('${queryParams.intersects}'))
+            )
+            SELECT ${columns.join(',')} FROM '${parquetFile}' p
+            JOIN cte c
+            ON c.trajectory = p.trajectory
+            WHERE p.obs = 0
+            ORDER by p.trajectory, p.obs
+        `;
+    };
+
+    let queries = [];
+    
+    if (queryParams.timeRange) {
+        if ( !GEOPARQUET_FILES[queryParams.timeRange[0]] ) {
+            return res.status(400).json({
+                error: 'No data associated with datetime'
+            });
+        }
+        else {
+            queries.push(runQuery(queryString(GEOPARQUET_FILES[queryParams.timeRange[0]])));
+        }
+    }
+    else {
+        for (var key in GEOPARQUET_FILES) {
+            queries.push(runQuery(queryString(GEOPARQUET_FILES[key])));
+        }
+    }
+
+    var hrstart = process.hrtime()
+
+    try {
+        const results = await Promise.all(queries);
+
+        let geojson = {
+            type: 'FeatureCollection',
+            context: {
+                query: {
+                    processingTime: process.hrtime(hrstart)
+                }
+            },
+            features:[]
+        };
+
+        for (var i = 0, ii = results.length; i < ii; i++) {
+            for (var j = 0, jj = results[i].length; j < jj; j++) {
+                let properties = {};
+                let row = results[i][j];
+                let isoTime = results[i][0].time.toISOString().substring(0,10);
+                for (var key in row) {
+                    if (['geometry'].includes(key)) {
+                        continue;
+                    }
+                    properties[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
+                }
+                properties['trajectory'] = [isoTime, properties['trajectory']].join('_');
+                geojson.features.push({
+                    type: 'Feature',
+                    id: [isoTime, row.trajectory, row.obs].join('_'),
+                    properties: properties,
+                    geometry: JSON.parse(row.geometry), // Parsing GeoJSON geometry
+                });
+            }
+        }
+
+        // Return the GeoJSON response
+        res.setHeader('Content-Type', 'application/geo+json');
+        res.json(geojson);
+        
+    } catch (e) {
+        setImmediate(() => {
+            return res.status(500).json({
+                error: e.message,
+                stack: e.stack
+            });
+        });
+    }
+
+});
+
 
 /** =================================================================================== */
 
@@ -221,8 +325,8 @@ function getGeoparquets() {
         for (var j = 0, jj = months.length; j < jj; j++) {
             for (var k = 0, kk = days.length; k < kk; k++) {
                 var id = [[years[i], months[j].toString().padStart(2, '0'), days[k].toString().padStart(2, '0')].join('-')];
-                geoparquets[id] = rootUrl + 'RUN_' + years[i] + '_5YEARS_GEOPARQUET/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
-                //geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
+                //geoparquets[id] = rootUrl + 'RUN_' + years[i] + '_5YEARS_GEOPARQUET/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
+                geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
             }
         }
     }
