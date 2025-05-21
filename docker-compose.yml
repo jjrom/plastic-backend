@@ -1,0 +1,15 @@
+services:
+  plastic-backend:
+    image: jjrom/plastic-backend:latest
+    restart: unless-stopped
+    build:
+      context: ./
+      dockerfile: ./edito.Dockerfile
+    networks:
+      - default
+    ports:
+      - 3002:3002
+    volumes:
+      - ./server.js:/usr/src/app/server.js
+      - ./data:/data
+      
