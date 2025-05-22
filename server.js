@@ -7,6 +7,158 @@ const crypto = require('crypto');
 const app = express();
 const port = 3002;
 
+const PLASTIC_CODES = {
+    CI:0,
+    RI:1
+};
+
+const continents = [
+    {
+        name: 'Europe',
+        coordinates: [
+            [
+                [-10.898438, 36.315125], 
+                [-10.898438, 44.024422],
+                [-1.318359, 44.024422],
+                [-1.318359, 36.315125],
+                [-10.898438, 36.315125]
+            ],
+            [
+                [11.777344, 34.633208], 
+                [11.777344, 46.164614],
+                [26.323242, 46.164614],
+                [26.323242, 34.633208],
+                [11.777344, 34.633208]
+            ],
+            [
+                [11.777344, 34.633208], 
+                [11.777344, 46.164614],
+                [26.323242, 46.164614],
+                [26.323242, 34.633208],
+                [11.777344, 34.633208]
+            ],
+            [
+                [-2.15332, 37.439974],
+                [-2.15332, 46.709736],
+                [11.865234, 46.709736],
+                [11.865234, 37.439974],
+                [-2.15332, 37.439974]
+            ],
+            [
+                [-11.25, 43.325178],
+                [-11.25, 59.355596],
+                [27.070313, 59.355596],
+                [27.070313, 43.325178],
+                [-11.25, 43.325178]
+            ]
+        ]
+    },
+    {
+        name: 'Africa',
+        coordinates: [
+            [
+                [-0.263672, 32.916485],
+                [-0.263672, 37.68382],
+                [11.469727, 37.68382],
+                [11.469727, 32.916485],
+                [-0.263672, 32.916485]
+            ],
+            [
+                [11.030273, 29.993002],
+                [11.030273, 34.885931],
+                [31.816406, 34.885931],
+                [31.816406, 29.993002],
+                [11.030273, 29.993002]
+            ],
+            [
+                [-19.6875, -36.597889],
+                [-19.6875, 30.902225],
+                [60.46875, 30.902225],
+                [60.46875, -36.597889],
+                [-19.6875, -36.597889]
+            ],
+            [
+                [-14.238281, 29.53523],
+                [-14.238281, 36.031332],
+                [11.425781, 36.031332],
+                [11.425781, 29.53523],
+                [-14.238281, 29.53523]
+            ]
+        ]
+    },
+    {
+        name: 'Oceania',
+        coordinates: [
+            [
+                [93.867188, -48.922499],
+                [93.867188, 8.754795],
+                [180, 8.754795],
+                [180, -48.922499],
+                [93.867188, -48.922499]
+            ]
+        ]
+    },
+    {
+        name: 'America',
+        coordinates: [
+            [
+                [-84.023438, -57.136239],
+                [-84.023438, 15.961329],
+                [-31.289063, 15.961329],
+                [-31.289063, -57.136239],
+                [-84.023438, -57.136239]
+            ],
+            [
+                [-123.398438, 6.664608],
+                [-123.398438, 30.751278],
+                [-64.335938, 30.751278],
+                [-64.335938, 6.664608],
+                [-123.398438, 6.664608]
+            ],
+            [
+                [-130.078125, 29.840644],
+                [-130.078125, 52.48278],
+                [-51.328125, 52.48278],
+                [-51.328125, 29.840644],
+                [-130.078125, 29.840644]
+            ],
+            [
+                [-166.289063, 51.618017],
+                [-166.289063, 73.528399],
+                [-50.273438, 73.528399],
+                [-50.273438, 51.618017],
+                [-166.289063, 51.618017]
+            ]
+        ]
+    },
+    {
+        name: 'Asia',
+        coordinates: [
+            [
+                [47.109375, 18.979026],
+                [47.109375, 32.546813],
+                [123.75, 32.546813],
+                [123.75, 18.979026],
+                [47.109375, 18.979026]
+            ],
+            [
+                [71.71875, 5.266008],
+                [71.71875, 21.943046],
+                [127.617188, 21.943046],
+                [127.617188, 5.266008],
+                [71.71875, 5.266008]
+            ],
+            [
+                [115.664063, 18.979026],
+                [115.664063, 62.431074],
+                [147.304688, 62.431074],
+                [147.304688, 18.979026],
+                [115.664063, 18.979026]
+            ]
+        ]   
+    }
+];
+
 /**
  * Data sources are stored on EDITO at
  * 
@@ -80,7 +232,7 @@ const columns = [
  */
 app.get("/tracks", async (req, res) => {
 
-    const queryParams = parseQueryParams(req.query);
+    const queryParams = parseQueryParams(req.query, res);
     const limit = queryParams.limit || 100000;
 
     const queryString = `
@@ -96,7 +248,7 @@ app.get("/tracks", async (req, res) => {
  */
 app.get("/tracks/:trackId", async (req, res) => {
 
-    const queryParams = parseQueryParams(req.query);
+    const queryParams = parseQueryParams(req.query, res);
     const queryString = `
         SELECT ${columns.join(',')} FROM '${GEOPARQUET_FILE}' p
         WHERE trajectory = ${req.params.trackId}
@@ -111,19 +263,40 @@ app.get("/tracks/:trackId", async (req, res) => {
  */
 app.get("/destination", async (req, res) => {
 
-    const queryParams = parseQueryParams(req.query);
+    const queryParams = parseQueryParams(req.query, res);
     if (!queryParams.intersects) {
         return res.status(400).json({
             error: 'Mandatory bbox or intersects is missing'
         });
     }
 
-    if (!queryParams.timeRange) {
+    if (!queryParams.month) {
         return res.status(400).json({
-            error: 'Mandatory datetime is missing'
+            error: 'Mandatory month in the form "YYYY-MM" is missing'
         });
     }
 
+
+    let queries = [];
+    let keys = [
+        queryParams.month + '-01',
+        queryParams.month + '-08',
+        queryParams.month + '-15',
+        //queryParams.month + '-22',  
+    ];
+
+    for (var i = 0, ii = keys.length; i < ii; i++) {
+        if ( GEOPARQUET_FILES[keys[i]] && checkDataExist(GEOPARQUET_FILES[keys[i]])) {
+            queries.push(runQuery(queryString(GEOPARQUET_FILES[keys[i]])));    
+        }
+    }
+
+    if (queries.length === 0) {
+        return res.status(400).json({
+            error: 'No data associated with month ' + queryParams.month
+        });
+    }
+    
     function queryString(parquetFile) {
         return `
             WITH cte AS (
@@ -138,72 +311,7 @@ app.get("/destination", async (req, res) => {
         `;
     };
 
-    let queries = [];
-
-    if (queryParams.timeRange) {
-        if ( !GEOPARQUET_FILES[queryParams.timeRange[0]] ) {
-            return res.status(400).json({
-                error: 'No data associated with datetime'
-            });
-        }
-        else {
-            queries.push(runQuery(queryString(GEOPARQUET_FILES[queryParams.timeRange[0]])));
-        }
-    }
-    else {
-        for (var key in GEOPARQUET_FILES) {
-            queries.push(runQuery(queryString(GEOPARQUET_FILES[key])));
-        }
-    }
-
-    var hrstart = process.hrtime()
-
-    try {
-        const results = await Promise.all(queries);
-
-        let geojson = {
-            type: 'FeatureCollection',
-            context: {
-                query: {
-                    processingTime: process.hrtime(hrstart)
-                }
-            },
-            features:[]
-        };
-
-        for (var i = 0, ii = results.length; i < ii; i++) {
-            for (var j = 0, jj = results[i].length; j < jj; j++) {
-                let properties = {};
-                let row = results[i][j];
-                let isoTime = results[i][0].time.toISOString().substring(0,10);
-                for (var key in row) {
-                    if (['geometry'].includes(key)) {
-                        continue;
-                    }
-                    properties[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
-                }
-                properties['trajectory'] = [isoTime, properties['trajectory']].join('_');
-                geojson.features.push({
-                    type: 'Feature',
-                    id: [isoTime, row.trajectory, row.obs].join('_'),
-                    properties: properties,
-                    geometry: JSON.parse(row.geometry), // Parsing GeoJSON geometry
-                });
-            }
-        }
-
-        // Return the GeoJSON response
-        res.setHeader('Content-Type', 'application/geo+json');
-        res.json(geojson);
-        
-    } catch (e) {
-        setImmediate(() => {
-            return res.status(500).json({
-                error: e.message,
-                stack: e.stack
-            });
-        });
-    }
+    processQueryResult(queries, res);
 
 });
 
@@ -212,7 +320,7 @@ app.get("/destination", async (req, res) => {
  */
 app.get("/origin", async (req, res) => {
 
-    const queryParams = parseQueryParams(req.query);
+    const queryParams = parseQueryParams(req.query, res);
     if (!queryParams.intersects) {
         return res.status(400).json({
             error: 'Mandatory bbox or intersects is missing'
@@ -230,6 +338,7 @@ app.get("/origin", async (req, res) => {
             WITH cte AS (
                 SELECT DISTINCT trajectory FROM '${parquetFile}'
                 WHERE ST_Intersects_Extent(geometry, ST_GeomFromText('${queryParams.intersects}'))
+                AND time BETWEEN '${queryParams.timeRange[0]}' AND '${queryParams.timeRange[1]}'
             )
             SELECT ${columns.join(',')} FROM '${parquetFile}' p
             JOIN cte c
@@ -257,54 +366,7 @@ app.get("/origin", async (req, res) => {
         }
     }
 
-    var hrstart = process.hrtime()
-
-    try {
-        const results = await Promise.all(queries);
-
-        let geojson = {
-            type: 'FeatureCollection',
-            context: {
-                query: {
-                    processingTime: process.hrtime(hrstart)
-                }
-            },
-            features:[]
-        };
-
-        for (var i = 0, ii = results.length; i < ii; i++) {
-            for (var j = 0, jj = results[i].length; j < jj; j++) {
-                let properties = {};
-                let row = results[i][j];
-                let isoTime = results[i][0].time.toISOString().substring(0,10);
-                for (var key in row) {
-                    if (['geometry'].includes(key)) {
-                        continue;
-                    }
-                    properties[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
-                }
-                properties['trajectory'] = [isoTime, properties['trajectory']].join('_');
-                geojson.features.push({
-                    type: 'Feature',
-                    id: [isoTime, row.trajectory, row.obs].join('_'),
-                    properties: properties,
-                    geometry: JSON.parse(row.geometry), // Parsing GeoJSON geometry
-                });
-            }
-        }
-
-        // Return the GeoJSON response
-        res.setHeader('Content-Type', 'application/geo+json');
-        res.json(geojson);
-        
-    } catch (e) {
-        setImmediate(() => {
-            return res.status(500).json({
-                error: e.message,
-                stack: e.stack
-            });
-        });
-    }
+    processQueryResult(queries, res);
 
 });
 
@@ -325,8 +387,8 @@ function getGeoparquets() {
         for (var j = 0, jj = months.length; j < jj; j++) {
             for (var k = 0, kk = days.length; k < kk; k++) {
                 var id = [[years[i], months[j].toString().padStart(2, '0'), days[k].toString().padStart(2, '0')].join('-')];
-                geoparquets[id] = rootUrl + 'RUN_' + years[i] + '_5YEARS_GEOPARQUET/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
-                //geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
+                //geoparquets[id] = rootUrl + 'RUN_' + years[i] + '_5YEARS_GEOPARQUET/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
+                geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
             }
         }
     }
@@ -346,7 +408,7 @@ function getGeoparquets() {
  *   - "datetime"   : ISO8601 range i.e. YYYY-MM-DDTHH:MM:SS(Z)/YYYY-MM-DDTHH:MM:SS(Z)
  * 
  */
-function parseQueryParams(query) {
+function parseQueryParams(query, res) {
 
     var inputs = {};
 
@@ -372,8 +434,13 @@ function parseQueryParams(query) {
     }
 
     // Datetime
-    if (query.hasOwnProperty('datetime')) {
-        inputs.timeRange = query.datetime.split('/');
+    if (query.hasOwnProperty('month')) {
+        if (! /^\d{4}-\d{2}/.test(query.month)) {
+            return res.status(400).json({
+                error: 'Invalid month. Should be in the form YYYY-MM',
+            });
+        }
+        inputs.month = query.month;
     }
 
     // Traj
@@ -418,6 +485,63 @@ function runQuery(queryString) {
 
 }
 
+async function processQueryResult(queries, res) {
+
+    var hrstart = process.hrtime()
+
+    try {
+        const results = await Promise.all(queries);
+
+        let geojson = {
+            type: 'FeatureCollection',
+            context: {
+                query: {
+                    processingTime: process.hrtime(hrstart)
+                }
+            },
+            features:[]
+        };
+
+        for (var i = 0, ii = results.length; i < ii; i++) {
+            for (var j = 0, jj = results[i].length; j < jj; j++) {
+                let properties = {};
+                let row = results[i][j];
+                let isoTime = results[i][0].time.toISOString().substring(0,10);
+                let geometry = JSON.parse(row.geometry);
+                for (var key in row) {
+                    if (['geometry'].includes(key)) {
+                        continue;
+                    }
+                    properties[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
+                }
+                properties['trajectory'] = [isoTime, properties['trajectory']].join('_');
+                properties['locatedIn'] = getLocationName(geometry.coordinates);
+                properties['plasticCode'] = row.RI_annual > 0.1 ? PLASTIC_CODES.RI: PLASTIC_CODES.CI;
+                geojson.features.push({
+                    type: 'Feature',
+                    id: [isoTime, row.trajectory, row.obs].join('_'),
+                    properties: properties,
+                    geometry: geometry, // Parsing GeoJSON geometry
+                });
+            }
+        }
+
+        // Return the GeoJSON response
+        res.setHeader('Content-Type', 'application/geo+json');
+        res.json(geojson);
+        
+    } catch (e) {
+        setImmediate(() => {
+            return res.status(500).json({
+                error: e.message,
+                stack: e.stack
+            });
+        });
+    }
+
+}
+
+
 function launchQuery(queryString, queryParams, geoparquetFile, res) {
 
     if (!checkDataExist(geoparquetFile)) {
@@ -454,17 +578,19 @@ function launchQuery(queryString, queryParams, geoparquetFile, res) {
                 },
                 features: rows.map(row => {
                     let properties = {};
+                    let geometry = JSON.parse(row.geometry);
                     for (var key in row) {
                         if (['geometry'].includes(key)) {
                             continue;
                         }
                         properties[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
                     }
+                    properties['locatedIn'] = getLocationName(geometry.coordinates)
                     return {
                         type: 'Feature',
                         id: [row.trajectory, row.obs].join('_'),
                         properties: properties,
-                        geometry: JSON.parse(row.geometry), // Parsing GeoJSON geometry
+                        geometry: geometry // Parsing GeoJSON geometry
                     };
                 })
             };
@@ -551,4 +677,51 @@ function checkFileExistsSync(filepath) {
     }
     return flag;
 }
+
+/**
+ * Return location name from input point using PIP algorithm against continents
+ * 
+ * @param {Array} point 
+ */
+function getLocationName(point) {
+    for (var i = continents.length; i--;) {
+        for (var j = continents[i].coordinates.length; j--;) {    
+            if (pointInPolygon(continents[i].coordinates[j], point)) {
+                return continents[i].name;
+            }
+        }
+    }
+    return 'Unknown';
+}
+
+/**
+ * Performs the even-odd-rule Algorithm (a raycasting algorithm) to find out whether a point is in a given polygon.
+ * This runs in O(n) where n is the number of edges of the polygon.
+ *
+ * @param {Array} polygon an array representation of the polygon where polygon[i][0] is the x Value of the i-th point and polygon[i][1] is the y Value.
+ * @param {Array} point   an array representation of the point where point[0] is its x Value and point[1] is its y Value
+ * @return {boolean} whether the point is in the polygon (not on the edge, just turn < into <= and > into >= for that)
+ */
+function pointInPolygon(polygon, point) {
+
+    //A point is in a polygon if a line from the point to infinity crosses the polygon an odd number of times
+    let odd = false;
+    
+    //For each edge (In this case for each point of the polygon and the previous one)
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; i++) {
+
+        //If a line from the point into infinity crosses this edge
+        if (((polygon[i][1] > point[1]) !== (polygon[j][1] > point[1])) // One point needs to be above, one below our y coordinate
+            // ...and the edge doesn't cross our Y corrdinate before our x coordinate (but between our x coordinate and infinity)
+            && (point[0] < ((polygon[j][0] - polygon[i][0]) * (point[1] - polygon[i][1]) / (polygon[j][1] - polygon[i][1]) + polygon[i][0]))) {
+            // Invert odd
+            odd = !odd;
+        }
+
+        j = i;
+
+    }
+    //If the number of crossings was odd, the point is in the polygon
+    return odd;
+};
 
