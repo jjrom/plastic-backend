@@ -327,18 +327,21 @@ app.get("/origin", async (req, res) => {
         });
     }
 
-    if (!queryParams.timeRange) {
+    if (!queryParams.month) {
         return res.status(400).json({
-            error: 'Mandatory datetime is missing'
+            error: 'Mandatory month in the form "YYYY-MM" is missing'
         });
     }
+
+    let queries = [];
+    queries.push(runQuery(queryString(GEOPARQUET_FILES['2010-01-01'])));
 
     function queryString(parquetFile) {
         return `
             WITH cte AS (
                 SELECT DISTINCT trajectory FROM '${parquetFile}'
                 WHERE ST_Intersects_Extent(geometry, ST_GeomFromText('${queryParams.intersects}'))
-                AND time BETWEEN '${queryParams.timeRange[0]}' AND '${queryParams.timeRange[1]}'
+                AND time BETWEEN '${queryParams.month + '-01'}' AND '${queryParams.month + '-28'}'
             )
             SELECT ${columns.join(',')} FROM '${parquetFile}' p
             JOIN cte c
@@ -347,24 +350,6 @@ app.get("/origin", async (req, res) => {
             ORDER by p.trajectory, p.obs
         `;
     };
-
-    let queries = [];
-    
-    if (queryParams.timeRange) {
-        if ( !GEOPARQUET_FILES[queryParams.timeRange[0]] ) {
-            return res.status(400).json({
-                error: 'No data associated with datetime'
-            });
-        }
-        else {
-            queries.push(runQuery(queryString(GEOPARQUET_FILES[queryParams.timeRange[0]])));
-        }
-    }
-    else {
-        for (var key in GEOPARQUET_FILES) {
-            queries.push(runQuery(queryString(GEOPARQUET_FILES[key])));
-        }
-    }
 
     processQueryResult(queries, res);
 
