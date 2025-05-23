@@ -165,6 +165,7 @@ const continents = [
  * https://minio.dive.edito.eu/project-plastic-marine-debris-drift/RUN_2010_5YEARS/Trajectories_trajectories_smoc_2010-1-1_1825days_coastalrepel.parquet
  */
 const GEOPARQUET_FILES = getGeoparquets();
+const COASTLINES_FILE = '/data/coastlines.json';
 
 // Caching mechanism
 const useCache = false;
@@ -179,6 +180,23 @@ const db = new duckdb.Database("/data/duckdb.db");
 console.log('Loading duckdb extensions...');
 db.exec("INSTALL spatial; LOAD spatial;");
 console.log('...done !');
+
+// Ingest GeoJSON coastlines
+/*console.log('Loading coastlines...');
+db.exec("CREATE TABLE IF NOT EXISTS coastlines AS SELECT * FROM ST_Read('" + COASTLINES_FILE + "');");
+db.exec(`
+    CREATE TABLE coastlines AS
+    WITH n1 AS (
+        SELECT ST_DUMP(ST_POINTS(geom)) as geom FROM ST_Read('${COASTLINES_FILE}')
+    ),
+    n2 AS (
+        SELECT UNNEST(geom, recursive := true) FROM n1
+    )
+    SELECT geom FROM n2;
+`);
+
+db.exec("CREATE INDEX IF NOT EXISTS geom_idx ON coastlines USING RTREE (geom);");
+console.log('...done !');*/
 
 // to support JSON-encoded bodies
 app.use(express.json());
@@ -335,6 +353,8 @@ app.get("/origin", async (req, res) => {
 
     let queries = [];
     queries.push(runQuery(queryString(GEOPARQUET_FILES['2010-01-01'])));
+    queries.push(runQuery(queryString(GEOPARQUET_FILES['2010-01-08'])));
+    queries.push(runQuery(queryString(GEOPARQUET_FILES['2010-01-15'])));
 
     function queryString(parquetFile) {
         return `
@@ -710,3 +730,6 @@ function pointInPolygon(polygon, point) {
     return odd;
 };
 
+function coastlinesIntersect() {
+    // SELECT geom FROM coastlines WHERE ST_INTERSECTS(ST_GeomFromText('POLYGON ((-76.80542 25.383735, -76.234131 25.383735, -76.234131 25.799891, -76.80542 25.799891, -76.80542 25.383735))'), geom) LIMIT 1;
+}
