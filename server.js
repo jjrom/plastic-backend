@@ -296,12 +296,7 @@ app.get("/destination", async (req, res) => {
 
 
     let queries = [];
-    let keys = [
-        queryParams.month + '-01',
-        queryParams.month + '-08',
-        queryParams.month + '-15',
-        //queryParams.month + '-22',  
-    ];
+    let keys = [queryParams.month];
 
     for (var i = 0, ii = keys.length; i < ii; i++) {
         if ( GEOPARQUET_FILES[keys[i]] && checkDataExist(GEOPARQUET_FILES[keys[i]])) {
@@ -351,19 +346,42 @@ app.get("/origin", async (req, res) => {
         });
     }
 
+    /*
+     * Get the list of all parquet files 5 years before the month
+     */
     let queries = [];
-    queries.push(runQuery(queryString(GEOPARQUET_FILES['2010-01-01'])));
-    queries.push(runQuery(queryString(GEOPARQUET_FILES['2010-01-08'])));
-    queries.push(runQuery(queryString(GEOPARQUET_FILES['2010-01-15'])));
+    let keys = [];
+    let yyyy = parseInt(queryParams.month.substring(0,4));
+    let mm = parseInt(queryParams.month.substring(5));
+    for (var i = yyyy - 5; i <= yyyy; i++) {
+        for (var j = 1; j <= 12; j++) {
+            if ( (i === yyyy - 5 && j < mm) || (i === yyyy && j >= mm) ) {
+                continue;
+            }
+            keys.push(i + '-' + j.toString().padStart(2, '0'));
+        }
+    }
+
+    for (var i = 0, ii = keys.length; i < ii; i++) {
+        if ( GEOPARQUET_FILES[keys[i]] && checkDataExist(GEOPARQUET_FILES[keys[i]])) {
+            queries.push(runQuery(queryString(GEOPARQUET_FILES[keys[i]])));    
+        }
+    }
+
+    if (queries.length === 0) {
+        return res.status(400).json({
+            error: 'No data associated with month ' + queryParams.month
+        });
+    }
 
     function queryString(parquetFile) {
         return `
             WITH cte AS (
-                SELECT DISTINCT trajectory FROM '${parquetFile}'
+                SELECT trajectory, time FROM '${parquetFile}'
                 WHERE ST_Intersects_Extent(geometry, ST_GeomFromText('${queryParams.intersects}'))
                 AND time BETWEEN '${queryParams.month + '-01'}' AND '${queryParams.month + '-28'}'
             )
-            SELECT ${columns.join(',')} FROM '${parquetFile}' p
+            SELECT ${columns.join(',')}, c.time as time_hit FROM '${parquetFile}' p
             JOIN cte c
             ON c.trajectory = p.trajectory
             WHERE p.obs = 0
@@ -380,20 +398,19 @@ app.get("/origin", async (req, res) => {
 
 function getGeoparquets() {
 
-    const rootUrl = 'https://minio.dive.edito.eu/project-plastic-marine-debris-drift/';
-    
+    const rootUrl = 'https://minio.dive.edito.eu/project-plastic-marine-debris-drift/UNOC/';
+
     var geoparquets = [];
 
     var years = [2010];
     var months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-    var days = [1, 8, 15, 22];
 
     for (var i = 0, ii = years.length; i < ii; i++) {
         for (var j = 0, jj = months.length; j < jj; j++) {
             for (var k = 0, kk = days.length; k < kk; k++) {
-                var id = [[years[i], months[j].toString().padStart(2, '0'), days[k].toString().padStart(2, '0')].join('-')];
-                //geoparquets[id] = rootUrl + 'RUN_' + years[i] + '_5YEARS_GEOPARQUET/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
-                geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
+                var id = [[years[i], months[j].toString().padStart(2, '0')].join('-')];
+                geoparquets[id] = rootUrl + 'Trajectories_smoc_UNOC_' + id + '_1825days_coastalrepel.parquet';
+                //geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
             }
         }
     }
