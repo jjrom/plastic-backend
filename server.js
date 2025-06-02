@@ -162,9 +162,8 @@ const continents = [
 /**
  * Data sources are stored on EDITO at
  * 
- * https://minio.dive.edito.eu/project-plastic-marine-debris-drift/RUN_2010_5YEARS/Trajectories_trajectories_smoc_2010-1-1_1825days_coastalrepel.parquet
+ * https://minio.dive.edito.eu/project-plastic-marine-debris-drift
  */
-const GEOPARQUET_FILES = getGeoparquets();
 const COASTLINES_FILE = '/data/coastlines.json';
 
 // Caching mechanism
@@ -230,24 +229,21 @@ app.listen(port, () => {
  * DATA STRUCTURE
  */
 const columns = [
-    "p.trajectory",
+    "p.label",
+    //"p.trajectory",
     "p.obs",
     "p.CI",
-    "p.EEZ",
     "p.MPW",
-    "p.RI",
-    "p.RI_annual",
-    "p.age",
-    "p.distcoast",
+    "p.RI_Meijer_annual",
+    //"p.age",
     "p.time",
-    "p.travelled_distance",
-    "p.z",
+    //"p.travelled_distance",
     "ST_AsGeoJSON(p.geometry) as geometry"
 ];
 
 /**
  * Get tracks
- */
+ *
 app.get("/tracks", async (req, res) => {
 
     const queryParams = parseQueryParams(req.query, res);
@@ -259,19 +255,35 @@ app.get("/tracks", async (req, res) => {
     launchQuery(queryString, queryParams, GEOPARQUET_FILE, res);
 
 });
-
+*/
 
 /**
  * Get track by id
  */
 app.get("/tracks/:trackId", async (req, res) => {
 
-    const queryParams = parseQueryParams(req.query, res);
-    const queryString = `
-        SELECT ${columns.join(',')} FROM '${GEOPARQUET_FILE}' p
-        WHERE trajectory = ${req.params.trackId}
-    `;
-    launchQuery(queryString, queryParams, GEOPARQUET_FILE, res);
+    const GEOPARQUET_FILES = getGeoparquets(req.query.v || 'new');
+
+    const key = req.params.trackId.substring(0, 4) + '-' + req.params.trackId.substring(4,6);
+
+    if ( !GEOPARQUET_FILES[key] || !checkDataExist(GEOPARQUET_FILES[key])) {
+        return res.status(400).json({
+            error: 'No data associated with month ' + queryParams.month
+        });
+    }
+    
+    let queries = [
+        runQuery(queryString(GEOPARQUET_FILES[key]))
+    ];
+
+    function queryString(parquetFile) {
+        return `
+            SELECT ${columns.join(',')} FROM '${parquetFile}' p
+            WHERE label = ${req.params.trackId}
+        `;
+    };
+
+    processQueryResult(queries, res);
 
 });
 
@@ -280,6 +292,8 @@ app.get("/tracks/:trackId", async (req, res) => {
  * Get destination from area
  */
 app.get("/destination", async (req, res) => {
+
+    const GEOPARQUET_FILES = getGeoparquets(req.query.v || 'new');
 
     const queryParams = parseQueryParams(req.query, res);
     if (!queryParams.intersects) {
@@ -313,14 +327,14 @@ app.get("/destination", async (req, res) => {
     function queryString(parquetFile) {
         return `
             WITH cte AS (
-                SELECT trajectory FROM '${parquetFile}'
+                SELECT label FROM '${parquetFile}'
                 WHERE obs = 0
                 AND ST_Intersects(geometry, ST_GeomFromText('${queryParams.intersects}'))
             )
             SELECT ${columns.join(',')} FROM '${parquetFile}' p
             JOIN cte c
-            ON c.trajectory = p.trajectory
-            ORDER by p.trajectory, p.obs
+            ON c.label = p.label
+            ORDER by p.label, p.obs
         `;
     };
 
@@ -333,6 +347,8 @@ app.get("/destination", async (req, res) => {
  */
 app.get("/origin", async (req, res) => {
 
+    const GEOPARQUET_FILES = getGeoparquets(req.query.v || 'new');
+    
     const queryParams = parseQueryParams(req.query, res);
     if (!queryParams.intersects) {
         return res.status(400).json({
@@ -377,15 +393,15 @@ app.get("/origin", async (req, res) => {
     function queryString(parquetFile) {
         return `
             WITH cte AS (
-                SELECT trajectory, time FROM '${parquetFile}'
+                SELECT label, time FROM '${parquetFile}'
                 WHERE ST_Intersects_Extent(geometry, ST_GeomFromText('${queryParams.intersects}'))
                 AND time BETWEEN '${queryParams.month + '-01'}' AND '${queryParams.month + '-28'}'
             )
             SELECT ${columns.join(',')}, c.time as time_hit FROM '${parquetFile}' p
             JOIN cte c
-            ON c.trajectory = p.trajectory
+            ON c.label = p.label
             WHERE p.obs = 0
-            ORDER by p.trajectory, p.obs
+            ORDER by p.label, p.obs
         `;
     };
 
@@ -396,9 +412,9 @@ app.get("/origin", async (req, res) => {
 
 /** =================================================================================== */
 
-function getGeoparquets() {
+function getGeoparquets(version) {
 
-    const rootUrl = 'https://minio.dive.edito.eu/project-plastic-marine-debris-drift/UNOC/';
+    const rootUrl = 'https://minio.dive.edito.eu/project-plastic-marine-debris-drift/' + (version === 'new' ? 'UNOC/' : 'UNOC2/');
 
     var geoparquets = [];
 
@@ -409,7 +425,7 @@ function getGeoparquets() {
         for (var j = 0, jj = months.length; j < jj; j++) {
             var id = [[years[i], months[j].toString().padStart(2, '0')].join('-')];
             geoparquets[id] = rootUrl + 'Trajectories_smoc_UNOC_' + id + '_1825days_coastalrepel.parquet';
-            //geoparquets[id] = '/data/Trajectories_smoc_' + [years[i], months[j], days[k]].join('-') + '_1825days_coastalrepel.parquet';
+            //geoparquets[id] = '/data/Trajectories_smoc_UNOC_' + id + '_1825days_coastalrepel.parquet';
         }
     }
 
@@ -526,20 +542,21 @@ async function processQueryResult(queries, res) {
             for (var j = 0, jj = results[i].length; j < jj; j++) {
                 let properties = {};
                 let row = results[i][j];
-                let isoTime = results[i][0].time.toISOString().substring(0,10);
                 let geometry = JSON.parse(row.geometry);
+                if ( geometry.coordinates.length != 2 ) {
+                    continue;
+                }
                 for (var key in row) {
                     if (['geometry'].includes(key)) {
                         continue;
                     }
                     properties[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
                 }
-                properties['trajectory'] = [isoTime, properties['trajectory']].join('_');
                 properties['locatedIn'] = getLocationName(geometry.coordinates);
-                properties['plasticCode'] = row.RI_annual > 0.1 ? PLASTIC_CODES.RI: PLASTIC_CODES.CI;
+                properties['plasticCode'] = row.RI_Meijer_annual > 0.1 ? PLASTIC_CODES.RI: PLASTIC_CODES.CI;
                 geojson.features.push({
                     type: 'Feature',
-                    id: [isoTime, row.trajectory, row.obs].join('_'),
+                    id: [row.label, row.obs].join('_'),
                     properties: properties,
                     geometry: geometry, // Parsing GeoJSON geometry
                 });
@@ -551,76 +568,6 @@ async function processQueryResult(queries, res) {
         res.json(geojson);
         
     } catch (e) {
-        setImmediate(() => {
-            return res.status(500).json({
-                error: e.message,
-                stack: e.stack
-            });
-        });
-    }
-
-}
-
-
-function launchQuery(queryString, queryParams, geoparquetFile, res) {
-
-    if (!checkDataExist(geoparquetFile)) {
-        res.status(400).json({ error: "Parquet file is not available " + geoparquetFile });
-    }
-
-    var hrstart = process.hrtime()
-
-    try {
-
-        db.all(queryString, (err, rows) => {
-
-            if (err) {
-                throw err;
-            }
-
-            // Construct GeoJSON FeatureCollection
-            const geojson = {
-                type: 'FeatureCollection',
-                links: [
-                    {
-                        href: geoparquetFile,
-                        rel: 'data',
-                        title: 'GeoParquet file',
-                        type: 'application/vnd.apache.parquet'
-                    }
-                ],
-                context: {
-                    returned: rows.length,
-                    limit: queryParams.hasOwnProperty('limit') ? queryParams.limit : -1,
-                    query: {
-                        processingTime: process.hrtime(hrstart)
-                    }
-                },
-                features: rows.map(row => {
-                    let properties = {};
-                    let geometry = JSON.parse(row.geometry);
-                    for (var key in row) {
-                        if (['geometry'].includes(key)) {
-                            continue;
-                        }
-                        properties[key] = typeof row[key] === 'bigint' ? row[key].toString() : row[key];
-                    }
-                    properties['locatedIn'] = getLocationName(geometry.coordinates)
-                    return {
-                        type: 'Feature',
-                        id: [row.trajectory, row.obs].join('_'),
-                        properties: properties,
-                        geometry: geometry // Parsing GeoJSON geometry
-                    };
-                })
-            };
-
-            // Return the GeoJSON response
-            res.setHeader('Content-Type', 'application/geo+json');
-            res.json(geojson);
-        });
-
-    } catch (error) {
         setImmediate(() => {
             return res.status(500).json({
                 error: e.message,
