@@ -441,7 +441,7 @@ function getGeoparquets(version) {
     for (var i = 0, ii = years.length; i < ii; i++) {
         for (var j = 0, jj = months.length; j < jj; j++) {
             var id = [[years[i], months[j].toString().padStart(2, '0')].join('-')];
-            geoparquets[id] = rootUrl + 'Trajectories_smoc_UNOC_' + id + '-01_1825days_coastalrepel.parquet';
+            geoparquets[id] = rootUrl + 'Trajectories_smoc_UNOC_' + id + '_1825days_coastalrepel.parquet';
         }
     }
 
