@@ -266,7 +266,7 @@ app.get("/tracks/:trackId", async (req, res) => {
 
     const key = req.params.trackId.substring(0, 4) + '-' + req.params.trackId.substring(4,6);
 
-    if ( !GEOPARQUET_FILES[key] || !checkDataExist(GEOPARQUET_FILES[key])) {
+    if ( !GEOPARQUET_FILES[key] || ! await checkDataExist(GEOPARQUET_FILES[key])) {
         return res.status(400).json({
             error: 'No data associated with month ' + queryParams.month
         });
@@ -310,20 +310,25 @@ app.get("/destination", async (req, res) => {
 
 
     let queries = [];
+    let promises = [];
     let keys = [queryParams.month];
 
     for (var i = 0, ii = keys.length; i < ii; i++) {
-        if ( GEOPARQUET_FILES[keys[i]] && checkDataExist(GEOPARQUET_FILES[keys[i]])) {
-            queries.push(runQuery(queryString(GEOPARQUET_FILES[keys[i]])));    
+        if ( GEOPARQUET_FILES[keys[i]] && await checkDataExist(GEOPARQUET_FILES[keys[i]])) {
+            queries.push(queryString(GEOPARQUET_FILES[keys[i]]));
         }
     }
-
+    
     if (queries.length === 0) {
         return res.status(400).json({
             error: 'No data associated with month ' + queryParams.month
         });
     }
     
+    for (var i = 0, ii = queries.length; i < ii; i++) {
+        promises.push(runQuery(queries[i]));
+    }
+
     function queryString(parquetFile) {
         return `
             WITH cte AS (
@@ -338,7 +343,7 @@ app.get("/destination", async (req, res) => {
         `;
     };
 
-    processQueryResult(queries, res);
+    processQueryResult(promises, res);
 
 });
 
@@ -366,6 +371,7 @@ app.get("/origin", async (req, res) => {
      * Get the list of all parquet files 5 years before the month
      */
     let queries = [];
+    let promises = [];
     let keys = [];
     let yyyy = parseInt(queryParams.month.substring(0,4));
     let mm = parseInt(queryParams.month.substring(5));
@@ -379,8 +385,8 @@ app.get("/origin", async (req, res) => {
     }
 
     for (var i = 0, ii = keys.length; i < ii; i++) {
-        if ( GEOPARQUET_FILES[keys[i]] && checkDataExist(GEOPARQUET_FILES[keys[i]])) {
-            queries.push(runQuery(queryString(GEOPARQUET_FILES[keys[i]])));    
+        if ( GEOPARQUET_FILES[keys[i]] && await checkDataExist(GEOPARQUET_FILES[keys[i]])) {
+            queries.push(queryString(GEOPARQUET_FILES[keys[i]]));
         }
     }
 
@@ -388,6 +394,10 @@ app.get("/origin", async (req, res) => {
         return res.status(400).json({
             error: 'No data associated with month ' + queryParams.month
         });
+    }
+    
+    for (var i = 0, ii = queries.length; i < ii; i++) {
+        promises.push(runQuery(queries[i]));
     }
 
     function queryString(parquetFile) {
@@ -405,7 +415,7 @@ app.get("/origin", async (req, res) => {
         `;
     };
 
-    processQueryResult(queries, res);
+    processQueryResult(promises, res);
 
 });
 
@@ -414,18 +424,24 @@ app.get("/origin", async (req, res) => {
 
 function getGeoparquets(version) {
 
-    const rootUrl = 'https://minio.dive.edito.eu/project-plastic-marine-debris-drift/' + (version === 'new' ? 'UNOC/' : 'UNOC2/');
-
+    let rootUrl;
+    
+    if (version === 'local') {
+        rootUrl = '/data/';
+    }
+    else {
+        rootUrl = 'https://minio.dive.edito.eu/project-plastic-marine-debris-drift/' + (version === 'old' ? 'UNOC/' : 'UNOC2/');
+    }
+    
     var geoparquets = [];
 
-    var years = [2010];
+    var years = [2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024];
     var months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
     for (var i = 0, ii = years.length; i < ii; i++) {
         for (var j = 0, jj = months.length; j < jj; j++) {
             var id = [[years[i], months[j].toString().padStart(2, '0')].join('-')];
-            geoparquets[id] = rootUrl + 'Trajectories_smoc_UNOC_' + id + '_1825days_coastalrepel.parquet';
-            //geoparquets[id] = '/data/Trajectories_smoc_UNOC_' + id + '_1825days_coastalrepel.parquet';
+            geoparquets[id] = rootUrl + 'Trajectories_smoc_UNOC_' + id + '-01_1825days_coastalrepel.parquet';
         }
     }
 
@@ -615,14 +631,9 @@ function saveToCache(hash, data) {
 
 async function checkDataExist(geoparquetFile) {
     if (geoparquetFile.startsWith('http')) {
-        if (! await urlExist(geoparquetFile)) {
-            return false;
-        }
+        return await urlExist(geoparquetFile);
     }
-    else if (!checkFileExistsSync(geoparquetFile)) {
-        return false;
-    }
-    return true;
+    return fs.existsSync(geoparquetFile);
 }
 
 async function urlExist(url) {
@@ -633,16 +644,6 @@ async function urlExist(url) {
     catch (error) {
         return false;
     }
-}
-
-function checkFileExistsSync(filepath) {
-    let flag = true;
-    try {
-        fs.accessSync(filepath, fs.constants.F_OK);
-    } catch (e) {
-        flag = false;
-    }
-    return flag;
 }
 
 /**
