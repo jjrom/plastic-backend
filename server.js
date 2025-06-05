@@ -221,9 +221,11 @@ app.get('/max', getMax);
 app.get('/maxInTime', getMaxInTime);*/
 
 // Start the server
-app.listen(port, () => {
+var server = app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
+
+server.setTimeout(600000);
 
 /** 
  * DATA STRUCTURE

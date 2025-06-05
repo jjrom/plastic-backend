@@ -1,6 +1,6 @@
 {
     "name": "plastic-backend",
-    "version": "2.0.7",
+    "version": "2.0.8",
     "description": "API to monitor plastic trajectories in the Ocean",
     "main": "server.js",
     "scripts": {
